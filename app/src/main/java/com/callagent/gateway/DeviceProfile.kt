@@ -433,6 +433,15 @@ data class DeviceProfile(
             java.io.File(path).readText().trim()
         } catch (_: Throwable) { "" }
 
+        /** Google Tensor G2: `ro.board.platform` / SoC model is gs201 on every
+         *  phone built on it; `cheetah` (Pixel 7 Pro) is matched by codename
+         *  too in case a ROM reports the platform differently.  All inputs
+         *  lower-case. */
+        fun isGs201(platform: String, socModel: String, device: String,
+                    board: String, hw: String): Boolean =
+            platform == "gs201" || socModel == "gs201" ||
+                device == "cheetah" || board == "cheetah" || hw == "cheetah"
+
         /** Auto-detect the device and return the appropriate profile. */
         fun detect(): DeviceProfile {
             val hw = Build.HARDWARE.lowercase()
@@ -458,6 +467,12 @@ data class DeviceProfile(
                 socId in setOf("355", "365", "366")
 
             return when {
+                // Google Tensor G2 (gs201, AoC audio DSP) — Pixel 7 Pro and
+                // siblings.  Checked first: the Pixel's HARDWARE/BOARD is the
+                // codename, so it would otherwise fall through to generic().
+                isGs201(platform, socModel, device, board, hw) ->
+                    gs201()
+
                 // Samsung Galaxy S4 Mini (MSM8930 / WCD9304)
                 board.contains("msm8930") || hw.contains("qcom") && model.contains("gt-i919") ->
                     msm8930()
@@ -1062,6 +1077,102 @@ data class DeviceProfile(
             routeChangeDelayMs = 500,
             audioRouteSettleDelayMs = 500,
             audioStopSettleDelayMs = 18_000,
+            appopsPropagationMs = 300,
+        )
+
+        /** Flag file that switches [gs201] onto its direct-mixer fallback.
+         *  Create it with root (`touch`) to enable, delete it to go back to
+         *  the standard Android routes.  Read by the root shell at call time,
+         *  so no restart is needed. */
+        const val GS201_MIXER_FALLBACK_FLAG =
+            "/data/user/0/com.callagent.gateway/files/aoc_mixer_fallback"
+
+        /** Run [cmds] only while [GS201_MIXER_FALLBACK_FLAG] exists. */
+        private fun gs201Fallback(cmds: String) =
+            "if [ -e $GS201_MIXER_FALLBACK_FLAG ]; then $cmds; fi"
+
+        /**
+         * Google Tensor G2 (gs201) with the AoC audio DSP — Pixel 7 Pro
+         * (cheetah).  Not Qualcomm: there is no voice_extn, no vsid/call_state
+         * and no Incall_Music/VOC_REC mixer.
+         *
+         * Uses the standard Android routes first.  The vendor
+         * audio_policy_configuration.xml declares exactly what the bridge
+         * needs — an "incall playback" mixPort (AUDIO_OUTPUT_FLAG_INCALL_MUSIC,
+         * 48 kHz stereo only) routed to "Telephony Tx", and "incall capture" /
+         * "voice call rx" (48 kHz mono) fed from "Voice Call And Telephony Rx".
+         * The HAL implements them as UC_INCALL_PLAYBACK / UC_INCALL_CAPTURE*;
+         * Pixel's own Call Screen runs on the same path ("voice-callP/C
+         * call-screen" in mixer_paths.xml).  So: AudioRecord on VOICE_DOWNLINK,
+         * AudioTrack routed to TYPE_TELEPHONY, and no mixer writes.
+         *
+         * Fallback, off unless [GS201_MIXER_FALLBACK_FLAG] exists: drive the
+         * AoC controls directly — 'Incall Capture Stream0' = DL (downlink only,
+         * the caller) and 'Voice Call Mic Source' = IN_CALL_MUSIC (uplink fed
+         * from our playback instead of the microphone).
+         *
+         * Untested on a live call; the mixerVerifyCmd readback is what shows
+         * which of the two the HAL actually needs.
+         */
+        fun gs201() = DeviceProfile(
+            name = "Google gs201 (AoC)",
+            mixerSetupCmd = gs201Fallback(
+                "tinymix 'Incall Capture Stream0' DL 2>/dev/null; " +
+                "tinymix 'Voice Call Mic Source' IN_CALL_MUSIC 2>/dev/null"
+            ),
+            // The HAL reprograms both on the next call's route; these are the
+            // idle values from mixer_paths.xml.
+            mixerRestoreCmd = gs201Fallback(
+                "tinymix 'Incall Capture Stream0' Off 2>/dev/null; " +
+                "tinymix 'Voice Call Mic Source' Builtin_MIC 2>/dev/null"
+            ),
+            mixerIncallMusicCmd = gs201Fallback(
+                "tinymix 'Voice Call Mic Source' IN_CALL_MUSIC 2>/dev/null"
+            ),
+            // Opening the capture stream makes the HAL program the stream
+            // controls itself, so the fallback re-asserts downlink after it.
+            mixerCaptureCmd = gs201Fallback(
+                "tinymix 'Incall Capture Stream0' DL 2>/dev/null"
+            ),
+            mixerVerifyCmd = buildString {
+                append("echo -n 'Fallback='; [ -e $GS201_MIXER_FALLBACK_FLAG ] && echo on || echo off; ")
+                append("echo -n 'CapStream0='; tinymix 'Incall Capture Stream0' 2>&1; ")
+                append("echo -n 'CapStream1='; tinymix 'Incall Capture Stream1' 2>&1; ")
+                append("echo -n 'CapStream2='; tinymix 'Incall Capture Stream2' 2>&1; ")
+                append("echo -n 'PbStream0='; tinymix 'Incall Playback Stream0' 2>&1; ")
+                append("echo -n 'PbStream1='; tinymix 'Incall Playback Stream1' 2>&1; ")
+                append("echo -n 'MicSource='; tinymix 'Voice Call Mic Source' 2>&1; ")
+                append("echo -n 'MicMute='; tinymix 'Incall Mic Mute' 2>&1; ")
+                append("echo -n 'SinkMute='; tinymix 'Incall Sink Mute' 2>&1; ")
+                append("echo -n 'VoiceAudio='; tinymix 'Voice Call Audio Enable' 2>&1")
+            },
+            // Same digital-path settings as the verified SM6150 profile:
+            // passed through untouched, no gates.
+            musicVolPercent = 20,
+            captureGain = 1,
+            playbackGain = 1,
+            noiseGateThreshold = 0,
+            echoGateThreshold = 300,
+            doubleTalkRatio = 1.5f,
+            playbackLeaksIntoCapture = false,
+            playbackFadeIn = false,
+            captureSilenceFrames = 300,
+            // The call is bridged, not heard: keep it off the loudspeaker and
+            // the room out of the uplink.
+            requireSpeakerMode = false,
+            silenceLocalAudio = true,
+            // Qualcomm HAL parameter; meaningless here.
+            incallMusicParam = "",
+            voiceDownlinkWorks = true,
+            // VOICE_DOWNLINK already resolves to Telephony Rx in the policy;
+            // forcing the device is left off until a call shows it is needed.
+            captureFromTelephonyRx = false,
+            playbackToTelephonyTx = true,
+            // "incall playback" declares AUDIO_CHANNEL_OUT_STEREO only.
+            playbackStereo = true,
+            playbackBufferMs = 100,
+            routeChangeDelayMs = 500,
+            audioRouteSettleDelayMs = 500,
             appopsPropagationMs = 300,
         )
 
