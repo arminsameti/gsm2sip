@@ -203,10 +203,11 @@ build_magisk() {
 install_to_device() {
     # Installing to "whatever is plugged in" is the wrong default once there is
     # more than one phone on the bus — the gateway has been installed onto the
-    # wrong handset this way.  SKIP_INSTALL=1 builds the artifacts and stops.
-    if [ -n "${SKIP_INSTALL:-}" ]; then
+    # wrong handset this way, so build.sh only builds by default.  INSTALL=1
+    # opts back in to installing onto the single connected device.
+    if [ -z "${INSTALL:-}" ] || [ -n "${SKIP_INSTALL:-}" ]; then
         echo ""
-        echo "SKIP_INSTALL set — built artifacts only, nothing installed."
+        echo "Built artifacts only, nothing installed (set INSTALL=1 to adb install)."
         return 0
     fi
 
