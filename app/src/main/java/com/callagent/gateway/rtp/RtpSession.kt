@@ -934,8 +934,8 @@ class RtpSession(
 
     // Raw PCM dump for diagnosing audio by ear or by analysis.  Opt-in:
     // only when files/dump_audio exists.  Overwritten every call.
-    private val dumpDir = java.io.File(context.filesDir, "dump")
-    private val dumpOn = java.io.File(context.filesDir, "dump_audio").exists()
+    private val dumpDir = java.io.File(com.callagent.gateway.Storage.filesDir(context), "dump")
+    private val dumpOn = java.io.File(com.callagent.gateway.Storage.filesDir(context), "dump_audio").exists()
     private val capDump: java.io.OutputStream? = if (dumpOn) try {
         dumpDir.mkdirs(); java.io.BufferedOutputStream(java.io.FileOutputStream(java.io.File(dumpDir, "cap.raw")))
     } catch (_: Exception) { null } else null
@@ -2049,7 +2049,7 @@ class RtpSession(
      *   getSharedPreferences("gateway", 0).edit().putBoolean("audio_diag", true)
      */
     private fun audioDiagnosticsEnabled(): Boolean = try {
-        context.getSharedPreferences("gateway", Context.MODE_PRIVATE)
+        com.callagent.gateway.Storage.prefs(context)
             .getBoolean("audio_diag", false)
     } catch (_: Exception) { false }
 

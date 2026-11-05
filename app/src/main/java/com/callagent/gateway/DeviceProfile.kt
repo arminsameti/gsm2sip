@@ -1096,7 +1096,7 @@ data class DeviceProfile(
          *  the standard Android routes.  Read by the root shell at call time,
          *  so no restart is needed. */
         const val GS201_MIXER_FALLBACK_FLAG =
-            "/data/user/0/com.callagent.gateway/files/aoc_mixer_fallback"
+            "/data/user_de/0/com.callagent.gateway/files/aoc_mixer_fallback"
 
         /** Run [cmds] only while [GS201_MIXER_FALLBACK_FLAG] exists. */
         private fun gs201Fallback(cmds: String) =
