@@ -44,6 +44,12 @@ data class DeviceProfile(
      *  Voice Rx/Tx Device Mute are re-applied by the HAL when it programs the
      *  voice-call mixer path and had no lasting effect. */
     val silenceLocalAudio: Boolean = false,
+    /** With [silenceLocalAudio], silence the earpiece by muting
+     *  STREAM_VOICE_CALL.  Off where the in-call capture tap sits after the
+     *  receive volume, so the mute also attenuates what VOICE_DOWNLINK
+     *  records; the stream is then held at [voiceCallVolPercent] instead
+     *  (on the earpiece, which nobody listens to on a gateway). */
+    val muteVoiceCallStream: Boolean = true,
     /** Start capture before the incall_music playback track is created.
      *  Pixel 4a needs this order (the modem TX path otherwise waits on a
      *  voice path not yet opened -> random one-way calls).  The S4 Mini
@@ -1080,6 +1086,11 @@ data class DeviceProfile(
             appopsPropagationMs = 300,
         )
 
+        /** [voiceCallVolPercent] of [max] as a STREAM_VOICE_CALL index; never
+         *  0, which can make the audio policy treat the call as inactive. */
+        fun voiceCallVolIndex(percent: Int, max: Int): Int =
+            if (percent > 0) (max * percent / 100).coerceAtLeast(1) else 1
+
         /** Flag file that switches [gs201] onto its direct-mixer fallback.
          *  Create it with root (`touch`) to enable, delete it to go back to
          *  the standard Android routes.  Read by the root shell at call time,
@@ -1161,6 +1172,12 @@ data class DeviceProfile(
             // the room out of the uplink.
             requireSpeakerMode = false,
             silenceLocalAudio = true,
+            // Muting STREAM_VOICE_CALL attenuated the VOICE_DOWNLINK capture
+            // too: the caller arrived at -41..-45 dBFS RMS on call 4
+            // (2026-11-04).  Hold the earpiece at full volume instead; the
+            // phone is never held to an ear.
+            muteVoiceCallStream = false,
+            voiceCallVolPercent = 100,
             // Qualcomm HAL parameter; meaningless here.
             incallMusicParam = "",
             voiceDownlinkWorks = true,

@@ -699,15 +699,29 @@ object GsmCallManager {
             // Digital bridge: silence the handset itself.  Done through
             // AudioManager because it goes via the HAL, unlike the ALSA voice
             // mutes which the HAL overwrites when it programs the call path.
-            try {
-                am.adjustStreamVolume(AudioManager.STREAM_VOICE_CALL, AudioManager.ADJUST_MUTE, 0)
-            } catch (_: SecurityException) {}
+            if (profile.muteVoiceCallStream) {
+                try {
+                    am.adjustStreamVolume(AudioManager.STREAM_VOICE_CALL, AudioManager.ADJUST_MUTE, 0)
+                } catch (_: SecurityException) {}
+            } else {
+                // Fixed earpiece level instead of a mute — see
+                // DeviceProfile.muteVoiceCallStream.
+                try {
+                    am.setStreamVolume(AudioManager.STREAM_VOICE_CALL, voiceCallVolIndex(am), 0)
+                } catch (_: SecurityException) {}
+            }
             try {
                 am.isMicrophoneMute = true
             } catch (e: Exception) {
                 Log.w(TAG, "Mic mute failed: ${e.message}")
             }
-            appLog("Local audio silenced: speaker muted, mic muted (digital only)")
+            if (profile.muteVoiceCallStream) {
+                appLog("Local audio silenced: speaker muted, mic muted (digital only)")
+            } else {
+                appLog("Local audio silenced: mic muted, voice stream held at " +
+                    "${am.getStreamVolume(AudioManager.STREAM_VOICE_CALL)}/" +
+                    "${am.getStreamMaxVolume(AudioManager.STREAM_VOICE_CALL)} (not muted)")
+            }
             return
         }
 
@@ -716,13 +730,7 @@ object GsmCallManager {
         // Exynos 9820: 80% — no muteVoiceRx, need loud speaker for mic capture.
         // Volume=0 can confuse audio policy into treating call as inactive.
         try {
-            val vcVol = if (profile.voiceCallVolPercent > 0) {
-                val maxVc = am.getStreamMaxVolume(AudioManager.STREAM_VOICE_CALL)
-                (maxVc * profile.voiceCallVolPercent / 100).coerceAtLeast(1)
-            } else {
-                1
-            }
-            am.setStreamVolume(AudioManager.STREAM_VOICE_CALL, vcVol, 0)
+            am.setStreamVolume(AudioManager.STREAM_VOICE_CALL, voiceCallVolIndex(am), 0)
         } catch (_: SecurityException) {}
         // Music stream controls incall_music injection level into
         // the modem uplink.  Lower value = quieter speaker + quieter
@@ -736,6 +744,11 @@ object GsmCallManager {
         val muted = am.isStreamMute(AudioManager.STREAM_VOICE_CALL)
         appLog("Vol: voice=$actualVoice(m=$muted), music=$actualMusic/$maxMusic(target=$musicVol)")
     }
+
+    /** STREAM_VOICE_CALL index for [DeviceProfile.voiceCallVolPercent]. */
+    private fun voiceCallVolIndex(am: AudioManager): Int =
+        DeviceProfile.voiceCallVolIndex(profile.voiceCallVolPercent,
+            am.getStreamMaxVolume(AudioManager.STREAM_VOICE_CALL))
 
     /** Restore audio state when call ends */
     private fun restoreAudio() {

@@ -36,6 +36,23 @@ class Gs201ProfileTest {
     }
 
     @Test
+    fun keepsVoiceCallStreamUnmutedAtFullVolume() {
+        val p = DeviceProfile.gs201()
+        assertTrue(p.silenceLocalAudio)
+        assertFalse(p.muteVoiceCallStream)
+        assertEquals(15, DeviceProfile.voiceCallVolIndex(p.voiceCallVolPercent, 15))
+        // Other profiles keep the old mute.
+        assertTrue(DeviceProfile.sm6150().muteVoiceCallStream)
+    }
+
+    @Test
+    fun voiceCallVolIndexNeverZero() {
+        assertEquals(1, DeviceProfile.voiceCallVolIndex(0, 15))
+        assertEquals(1, DeviceProfile.voiceCallVolIndex(1, 15))
+        assertEquals(10, DeviceProfile.voiceCallVolIndex(70, 15))
+    }
+
+    @Test
     fun mixerWritesOnlyRunBehindFallbackFlag() {
         val p = DeviceProfile.gs201()
         val guard = "if [ -e ${DeviceProfile.GS201_MIXER_FALLBACK_FLAG} ]; then "
