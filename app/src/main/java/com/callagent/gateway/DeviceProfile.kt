@@ -1255,6 +1255,13 @@ data class DeviceProfile(
             doubleTalkRatio = 1.5f,
             // Both directions are digital: nothing needs the loudspeaker.
             requireSpeakerMode = false,
+            // Hold STREAM_VOICE_CALL at full volume rather than the default
+            // minimum.  On a Pixel 7 Pro (cheetah) the AoC in-call capture tap
+            // sat after the receive volume: with the stream turned down the
+            // caller came in at -41..-45 dBFS RMS through VOICE_DOWNLINK
+            // (2026-11-04).  The earpiece stays silent through Incall Sink
+            // Mute, so the level is never heard.
+            voiceCallVolPercent = 100,
             incallMusicParam = "incall_music_enabled",
             voiceDownlinkWorks = true,
             // Downlink only — our own uplink is not folded into it.
